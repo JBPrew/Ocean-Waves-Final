@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tsunami GUI – GeoClaw Web</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: #ffffff;
+        color: #222;
+      }
+      #app {
+        display: grid;
+        grid-template-columns: 3fr 2fr;
+        grid-template-rows: auto 1fr;
+        height: 100%;
+      }
+      header {
+        grid-column: 1 / 3;
+        padding: 0.5rem 1rem;
+        background: #f8f9fa;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+      main {
+        display: contents;
+      }
+      #map {
+        grid-column: 1;
+        grid-row: 2;
+        height: 100%;
+        border-right: 1px solid #ddd;
+      }
+      #sidepanel {
+        grid-column: 2;
+        grid-row: 2;
+        padding: 0.75rem;
+        overflow-y: auto;
+      }
+      label {
+        font-size: 0.85rem;
+        display: block;
+        margin-top: 0.5rem;
+      }
+      select,
+      button {
+        margin-top: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.9rem;
+      }
+      button {
+        cursor: pointer;
+        background: #1e88e5;
+        color: #fff;
+        border-radius: 4px;
+        border: none;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .small {
+        font-size: 0.8rem;
+        color: #666;
+      }
+      #log {
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        background: #f5f5f5;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 0.5rem;
+        color: #333;
+      }
+      #timeDisplay {
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+      }
+      #playControls {
+        margin-top: 0.5rem;
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      input[type="range"] {
+        width: 100%;
+      }
+      
+      /* Professional tsunami visualization styles */
+      .tsunami-raster {
+        image-rendering: optimizeQuality;
+        image-rendering: -webkit-optimize-contrast;
+      }
+      
+      .contour-tooltip {
+        background: rgba(255, 255, 255, 0.95);
+        border: 1px solid #999;
+        border-radius: 3px;
+        color: #333;
+        padding: 2px 6px;
+        font-size: 0.75rem;
+        font-weight: bold;
+      }
+      
+      #legend {
+        position: absolute;
+        bottom: 30px;
+        right: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 10px;
+        border-radius: 5px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        font-size: 0.75rem;
+        color: #333;
+        z-index: 1000;
+        display: none;
+      }
+      
+      #legend.active {
+        display: block;
+      }
+      
+      #legend h4 {
+        margin: 0 0 5px 0;
+        font-size: 0.85rem;
+        font-weight: bold;
+      }
+      
+      .legend-gradient {
+        width: 200px;
+        height: 15px;
+        background: linear-gradient(
+          to right,
+          #0000ff 0%,
+          #4040ff 20%,
+          #ffffff 50%,
+          #ff4040 80%,
+          #ff0000 100%
+        );
+        border: 1px solid #999;
+        margin: 5px 0;
+      }
+      
+      .legend-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.7rem;
+        margin-top: 2px;
+      }
+    </style>
+
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>Tsunami Simulator</h1>
+        <div class="small">
+           MAE 330 Project By Jack Goodman and Jack Prewitt
+        </div>
+      </header>
+
+      <main>
+        <div id="map"></div>
+
+        <section id="sidepanel">
+          <label>
+            Tsunami template:
+            <select id="templateSelect">
+              <option value="">Loading templates...</option>
+            </select>
+          </label>
+
+          <label>
+            Current fault:
+            <div class="small" id="faultInfo">None selected</div>
+          </label>
+
+          <label>
+            Current map extent:
+            <div class="small" id="extentInfo">–</div>
+          </label>
+
+          <button id="runBtn" disabled>Run Simulation</button>
+
+          <label>
+            Saved simulations:
+            <select id="savedRunsSelect">
+              <option value="">(none)</option>
+            </select>
+          </label>
+          <button id="loadRunBtn">Load Selected Run</button>
+
+          <div id="timeDisplay"></div>
+
+          <div id="playControls" style="display: none">
+            <button id="playPauseBtn">Play</button>
+            <span class="small" id="frameLabel"></span>
+          </div>
+
+          <input
+            type="range"
+            id="frameSlider"
+            min="0"
+            max="0"
+            value="0"
+            style="display: none"
+          />
+
+          <div id="plotViewer" style="display: none; margin-top: 1rem;">
+            <img id="plotImage" src="" alt="Tsunami Plot" style="width: 100%; border: 1px solid #ddd; border-radius: 4px;" />
+          </div>
+
+          <div id="log"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+
+      const map = L.map("map", {
+        center: [0, 0],
+        zoom: 2,
+        worldCopyJump: true,
+      });
+
+      L.tileLayer("https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}{r}.png", {
+        maxZoom: 18,
+      }).addTo(map);
+
+      let faultMarker = null;
+      let currentFault = null;
+      let currentRun = null;
+      let playing = false;
+      let playTimer = null;
+      let currentOverlay = null;
+
+      const templateSelect = document.getElementById("templateSelect");
+      const faultInfo = document.getElementById("faultInfo");
+      const extentInfo = document.getElementById("extentInfo");
+      const runBtn = document.getElementById("runBtn");
+      const logDiv = document.getElementById("log");
+      const timeDisplay = document.getElementById("timeDisplay");
+      const playControls = document.getElementById("playControls");
+      const playPauseBtn = document.getElementById("playPauseBtn");
+      const frameSlider = document.getElementById("frameSlider");
+      const frameLabel = document.getElementById("frameLabel");
+      const savedRunsSelect = document.getElementById("savedRunsSelect");
+      const loadRunBtn = document.getElementById("loadRunBtn");
+      let savedRuns = [];
+
+      function log(msg) {
+        logDiv.textContent = msg;
+      }
+
+      // clicking to place fault
+      map.on("click", (e) => {
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+
+        currentFault = { lon, lat };
+
+        if (faultMarker) {
+          faultMarker.setLatLng(e.latlng);
+        } else {
+          faultMarker = L.marker(e.latlng, { draggable: false }).addTo(map);
+        }
+
+        faultInfo.textContent = `lon=${lon.toFixed(3)}, lat=${lat.toFixed(3)}`;
+        runBtn.disabled = false;
+        log("Fault placed. Ready to run simulation.");
+      });
+
+      function getCurrentExtent() {
+        const b = map.getBounds();
+        return {
+          west: b.getWest(),
+          east: b.getEast(),
+          south: b.getSouth(),
+          north: b.getNorth(),
+        };
+      }
+
+      function updateExtentInfo() {
+        const ext = getCurrentExtent();
+        extentInfo.textContent =
+          `W=${ext.west.toFixed(2)}, E=${ext.east.toFixed(2)}, ` +
+          `S=${ext.south.toFixed(2)}, N=${ext.north.toFixed(2)}`;
+      }
+
+      map.on("moveend", updateExtentInfo);
+      updateExtentInfo();
+
+      async function loadTemplates() {
+        try {
+          const resp = await fetch("/api/templates");
+          if (!resp.ok) {
+            console.warn("Failed to load templates:", await resp.text());
+            templateSelect.innerHTML = '<option value="chile2010">Chile 2010</option>';
+            return;
+          }
+          const data = await resp.json();
+          const templates = data.templates || [];
+
+          templateSelect.innerHTML = "";
+          if (!templates.length) {
+            templateSelect.innerHTML = '<option value="">No templates available</option>';
+            return;
+          }
+
+          templates.forEach((template) => {
+            const opt = document.createElement("option");
+            opt.value = template.id;
+            opt.textContent = template.name;
+            templateSelect.appendChild(opt);
+          });
+
+        // set default to chile
+          if (templates.find(t => t.id === "chile2010")) {
+            templateSelect.value = "chile2010";
+          }
+        } catch (err) {
+          console.error("Error loading templates", err);
+          templateSelect.innerHTML = '<option value="chile2010">Chile 2010</option>';
+        }
+      }
+
+      function configurePlaybackFromCurrentRun() {
+        if (!currentRun || !currentRun.frames.length) {
+          playControls.style.display = "none";
+          frameSlider.style.display = "none";
+          plotViewer.style.display = "none";
+          return;
+        }
+
+        // Setup slider
+        frameSlider.min = 0;
+        frameSlider.max = currentRun.frames.length - 1;
+        frameSlider.value = 0;
+        frameSlider.style.display = "block";
+        playControls.style.display = "flex";
+      }
+    async function refreshSavedRuns() {
+        try {
+          const resp = await fetch("/api/runs");
+          if (!resp.ok) {
+            console.warn("Failed to list runs:", await resp.text());
+            return;
+          }
+          const data = await resp.json();
+          savedRuns = data.runs || [];
+
+          savedRunsSelect.innerHTML = "";
+          if (!savedRuns.length) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "(none)";
+            savedRunsSelect.appendChild(opt);
+            return;
+          }
+
+          savedRuns.forEach((run) => {
+            const opt = document.createElement("option");
+            opt.value = run.run_id;
+            opt.textContent = `${run.run_id} (${run.n_frames} frames)`;
+            savedRunsSelect.appendChild(opt);
+          });
+        } catch (err) {
+          console.error("Error refreshing saved runs", err);
+        }
+      }
+
+      async function loadSavedRun(runId) {
+        if (!runId) return;
+
+        log(`Loading saved run ${runId}...`);
+        playing = false;
+        if (playTimer) {
+          clearInterval(playTimer);
+          playTimer = null;
+        }
+
+        try {
+          const resp = await fetch(
+            `/api/run/${encodeURIComponent(runId)}/summary`
+          );
+          if (!resp.ok) {
+            throw new Error(await resp.text());
+          }
+          const data = await resp.json();
+
+          currentRun = {
+            run_id: data.run_id,
+            frames: data.frames || [],
+            frameIndex: 0,
+            meta: data.meta || {},
+          };
+
+          if (!currentRun.frames.length) {
+            log("Saved run has no frames.");
+            configurePlaybackFromCurrentRun();
+            return;
+          }
+
+          configurePlaybackFromCurrentRun();
+          await showFrame(0);
+          log(`Loaded saved run ${runId} with ${currentRun.frames.length} frames.`);
+        } catch (err) {
+          console.error(err);
+          log(`Error loading run: ${err.message}`);
+        }
+      }
+
+      loadRunBtn.addEventListener("click", () => {
+        const runId = savedRunsSelect.value;
+        if (runId) {
+          loadSavedRun(runId);
+        }
+      });
+
+        // run simulation
+      runBtn.addEventListener("click", async () => {
+        if (!currentFault) {
+          log("Please click on the map to place a fault first.");
+          return;
+        }
+
+        const extent = getCurrentExtent();
+        const template = templateSelect.value;
+
+        log("Submitting simulation request...");
+        runBtn.disabled = true;
+
+        try {
+          const resp = await fetch("/api/simulate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              lon: currentFault.lon,
+              lat: currentFault.lat,
+              extent,
+              template,
+            }),
+          });
+
+          if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`Backend error: ${text}`);
+          }
+
+          const data = await resp.json();
+          currentRun = {
+            run_id: data.run_id,
+            frames: data.frames || [],
+            frameIndex: 0,
+          };
+
+          if (!currentRun.frames.length) {
+            playControls.style.display = "none";
+            frameSlider.style.display = "none";
+            timeDisplay.textContent = "";
+            return;
+          }
+
+          // Setup slider
+          frameSlider.min = 0;
+          frameSlider.max = currentRun.frames.length - 1;
+          frameSlider.value = 0;
+          frameSlider.style.display = "block";
+          playControls.style.display = "flex";
+
+          log(
+            `Simulation complete. ${currentRun.frames.length} frames available.`
+          );
+          await showFrame(0);
+        } catch (err) {
+          console.error(err);
+          log(`Error: ${err.message}`);
+        } finally {
+          runBtn.disabled = false;
+        }
+      });
+
+      // gather frames
+      async function fetchFrameData(frameIndex) {
+        if (!currentRun) return null;
+        const frameMeta = currentRun.frames[frameIndex];
+        const frameno = frameMeta.frame;
+
+        const url = `/run/${encodeURIComponent(
+          currentRun.run_id
+        )}/frame/${frameno}.json`;
+
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Failed to fetch frame ${frameno}: ${text}`);
+        }
+        return await resp.json();
+      }
+
+      const plotViewer = document.getElementById("plotViewer");
+      const plotImage = document.getElementById("plotImage");
+
+      async function showFrame(frameIndex) {
+        if (!currentRun) return;
+
+        frameIndex = Math.max(
+          0,
+          Math.min(frameIndex, currentRun.frames.length - 1)
+        );
+        currentRun.frameIndex = frameIndex;
+        frameSlider.value = frameIndex;
+
+        const meta = currentRun.frames[frameIndex];
+        frameLabel.textContent = `Frame ${meta.frame} / ${
+          currentRun.frames[currentRun.frames.length - 1].frame
+        }`;
+
+        // update time display
+        const t = meta.t;
+        if (t !== null && t !== undefined) {
+          const hours = t / 3600;
+          if (hours < 1) {
+            timeDisplay.textContent = `t = ${t.toFixed(0)} s`;
+          } else {
+            timeDisplay.textContent = `t = ${hours.toFixed(2)} hours`;
+          }
+        }
+
+        //  display plots
+        const frameno = meta.frame;
+        const plotFilename = `frame${frameno.toString().padStart(4, '0')}fig0.png`;
+        const plotUrl = `/run/${encodeURIComponent(currentRun.run_id)}/plots/${plotFilename}`;
+        
+        plotImage.src = plotUrl;
+        plotViewer.style.display = "block";
+      }
+
+      // Slider interaction
+      frameSlider.addEventListener("input", async () => {
+        const idx = parseInt(frameSlider.value, 10);
+        playing = false;
+        playPauseBtn.textContent = "Play";
+        if (playTimer) {
+          clearInterval(playTimer);
+          playTimer = null;
+        }
+        await showFrame(idx);
+      });
+
+      // Play/pause
+      playPauseBtn.addEventListener("click", () => {
+        if (!currentRun) return;
+
+        if (!playing) {
+          playing = true;
+          playPauseBtn.textContent = "Pause";
+          let idx = currentRun.frameIndex;
+          playTimer = setInterval(async () => {
+            if (!playing) return;
+            idx += 1;
+            if (idx >= currentRun.frames.length) {
+              idx = 0;
+            }
+            await showFrame(idx);
+          }, 300);
+        } else {
+          playing = false;
+          playPauseBtn.textContent = "Play";
+          if (playTimer) {
+            clearInterval(playTimer);
+            playTimer = null;
+          }
+        }
+      });
+      loadTemplates();
+      refreshSavedRuns();
+
+    </script>
+  </body>
+</html>
